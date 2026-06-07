@@ -46,30 +46,92 @@ void uart_init() {
 }
 
 void uart_send(char c) {
+  // Wait for transmitter to be idle.
   while (!(mmio_read(AUX_MU_LSR_REG) & 0x20));
 
+  // Write data to transmit FIFO.
   mmio_write(AUX_MU_IO_REG, c);
 }
 
-void uart_print(const char* str) {
-  while (*str != '\0') {
+void uart_print(const char* s) {
+  while (*s != '\0') {
     // Add carriage return for newlines.
-    if (*str == '\n') {
+    if (*s == '\n') {
       uart_send('\r');
     }
 
-    uart_send(*str);
-    str++;
+    uart_send(*s);
+    s++;
   }
 }
+
+char nibble_to_char(int nibble) {
+  if (nibble >= 0 && nibble <= 9) {
+    return '0' + nibble;
+  } else if (nibble >= 10 && nibble <= 15) {
+    return 'A' + (nibble - 10);
+  } else {
+    return 26; // ASCII substitute character
+  } 
+}
+
+void uart_print_hex(unsigned int value) {
+  uart_send('0');
+  uart_send('x');
+
+  // TODO: Make the size a constant.
+  static int nibbles[4];
+
+  int idx = 0;
+  while (idx < 4) {
+    nibbles[idx] = value & ((1 << 4) - 1); 
+    value = value >> 4; 
+
+    idx++;
+  }  
+
+  idx--;
+
+  while (idx >= 0) {
+    uart_send(nibble_to_char(nibbles[idx]));
+    idx--;
+  } 
+}
+
+void uart_print_char_hex(char value) {
+  static const int kMask = (1 << 4) - 1;
+
+  int nibble0 = value & kMask; 
+  value = value >> 4;
+
+  int nibble1 = value & kMask;
+  
+  uart_send(nibble_to_char(nibble1));
+  uart_send(nibble_to_char(nibble0));   
+}
+
+void uart_dump(void* mem, int size) {
+  char* ptr = (char*)mem;
+
+  while (size > 0) {
+    uart_print_char_hex(*ptr);
+    ptr++;
+
+    size--;
+  }
+}
+
+extern char _bss_start;
 
 int main() {
   uart_init();
 
-  uart_send('A');
+  uart_print("Hello, World!\n");
 
-  uart_send('\r');
-  uart_send('\n');
+  char* bss_start = (char*)&_bss_start - 8;
+  uart_dump(bss_start, 32);
+
+  uart_print("\n");
 
   return 0;
 }
