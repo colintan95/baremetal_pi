@@ -80,7 +80,7 @@ void uart_print_hex(unsigned int value) {
   uart_send('x');
 
   // TODO: Make the size a constant.
-  static int nibbles[4];
+  int nibbles[4];
 
   int idx = 0;
   while (idx < 4) {
