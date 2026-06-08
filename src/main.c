@@ -12,6 +12,23 @@
 #define AUX_MU_CNTL_REG (AUX_BASE + 0x60)
 #define AUX_MU_BAUD_REG (AUX_BASE + 0x68)
 
+#define MBOX_BASE (MMIO_BASE + 0xb880)
+
+#define MBOX_READ (MBOX_BASE)
+#define MBOX_STATUS (MBOX_BASE + 0x18)
+#define MBOX_WRITE (MBOX_BASE + 0x20)
+
+#define MBOX_CHANNEL_TAGS 8
+
+#define MBOX_TAG_LAST 0
+#define MBOX_TAG_GETSERIAL 0x10004
+
+#define MBOX_REQUEST 0
+#define MBOX_RESPONSE 0x80000000
+
+#define MBOX_EMPTY 0x40000000
+#define MBOX_FULL 0x80000000
+
 void mmio_write(long reg, unsigned int value) {
   *(volatile unsigned int*)reg = value;
 }
@@ -76,14 +93,11 @@ char nibble_to_char(int nibble) {
 }
 
 void uart_print_hex(unsigned int value) {
-  uart_send('0');
-  uart_send('x');
-
-  // TODO: Make the size a constant.
-  int nibbles[4];
+  static const int kNibbles = 8;
+  int nibbles[kNibbles];
 
   int idx = 0;
-  while (idx < 4) {
+  while (idx < kNibbles) {
     nibbles[idx] = value & ((1 << 4) - 1); 
     value = value >> 4; 
 
@@ -98,40 +112,60 @@ void uart_print_hex(unsigned int value) {
   } 
 }
 
-void uart_print_char_hex(char value) {
-  static const int kMask = (1 << 4) - 1;
+void query_serial_number() {
+  // Must be aligned to 16 bytes because we can only pass a 28-bit
+  // address to the mailbox.
+  volatile unsigned int __attribute__((aligned(16))) buffer[8];
 
-  int nibble0 = value & kMask; 
-  value = value >> 4;
+  buffer[0] = 8 * 4; // Buffer size in bytes
+  buffer[1] = MBOX_REQUEST;
 
-  int nibble1 = value & kMask;
-  
-  uart_send(nibble_to_char(nibble1));
-  uart_send(nibble_to_char(nibble0));   
-}
+  // Tag
+  buffer[2] = MBOX_TAG_GETSERIAL; // Get board serial
+  buffer[3] = 8; // Value buffer size in bytes 
+  buffer[4] = 0; // Request code 
 
-void uart_dump(void* mem, int size) {
-  char* ptr = (char*)mem;
+  // Value buffer
+  buffer[5] = 0;
+  buffer[6] = 0;
 
-  while (size > 0) {
-    uart_print_char_hex(*ptr);
-    ptr++;
+  // End tag
+  buffer[7] = MBOX_TAG_LAST;
 
-    size--;
+  while (mmio_read(MBOX_STATUS) & MBOX_FULL);
+
+  // Raspberry pi only uses 32-bit addresses so this should be safe.
+  unsigned int addr = (unsigned int)(unsigned long)&buffer;
+
+  // First 28 bits is the address to the buffer. Last 4 bits is the
+  // channel number.
+  unsigned int value = (addr & ~0xf) | MBOX_CHANNEL_TAGS;  
+
+  mmio_write(MBOX_WRITE, value);
+
+  while (1) {
+    while (mmio_read(MBOX_STATUS) & MBOX_EMPTY);  
+
+    if (mmio_read(MBOX_READ) == value) {
+      if (buffer[1] == MBOX_RESPONSE) {
+        // Prints the serial address.
+        uart_print_hex(buffer[6]);
+        uart_print_hex(buffer[5]);
+
+        uart_print("\n"); 
+      } 
+
+      return;
+    }
   }
 }
-
-extern char _bss_start;
 
 int main() {
   uart_init();
 
   uart_print("Hello, World!\n");
 
-  char* bss_start = (char*)&_bss_start - 8;
-  uart_dump(bss_start, 32);
-
-  uart_print("\n");
+  query_serial_number();
 
   return 0;
 }
