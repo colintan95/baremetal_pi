@@ -1,2 +1,2 @@
 #!/usr/bin/env bash
-screen /dev/ttyUSB0 115200 
+screen /dev/ttyUSB0 115200

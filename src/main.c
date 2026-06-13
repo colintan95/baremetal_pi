@@ -1,52 +1,7 @@
 #include "reg.h"
 #include "mmio.h"
 #include "uart.h"
-
-#define MBOX_BASE (MMIO_BASE + 0xb880)
-
-#define MBOX_READ (MBOX_BASE)
-#define MBOX_STATUS (MBOX_BASE + 0x18)
-#define MBOX_WRITE (MBOX_BASE + 0x20)
-
-#define MBOX_CHANNEL_TAGS 8
-
-#define MBOX_TAG_LAST 0
-#define MBOX_TAG_GET_SERIAL 0x10004
-
-#define MBOX_REQUEST 0
-#define MBOX_RESPONSE 0x80000000
-
-#define MBOX_EMPTY 0x40000000
-#define MBOX_FULL 0x80000000
-
-// The buffer must be aligned to 16 bytes because we can only pass a 28-bit
-// address to the mailbox.
-int mailbox_call(unsigned int* buffer, unsigned char channel) {
-  while (reg_read(MBOX_STATUS) & MBOX_FULL);
-
-  // Raspberry pi only uses 32-bit addresses so this should be safe.
-  unsigned int addr = (unsigned int)(unsigned long)buffer;
-
-  // First 28 bits is the address to the buffer. Last 4 bits is the channel 
-  // number.
-  unsigned int value = (addr & ~0xf) | (channel & 0xf);  
-
-  reg_write(MBOX_WRITE, value);
-
-  while (1) {
-    while (reg_read(MBOX_STATUS) & MBOX_EMPTY);  
-
-    if (reg_read(MBOX_READ) == value) {
-      if (buffer[1] == MBOX_RESPONSE) {
-        return 1;
-      } else {
-        return 0;
-      }
-    }
-  }
-
-  return 0;
-}
+#include "mbox.h"
 
 void query_serial_number() {
   volatile unsigned int __attribute__((aligned(16))) buffer[8];
@@ -56,8 +11,8 @@ void query_serial_number() {
 
   // Tag
   buffer[2] = MBOX_TAG_GET_SERIAL; // Get board serial
-  buffer[3] = 8; // Value buffer size in bytes 
-  buffer[4] = 0; // Request code 
+  buffer[3] = 8; // Value buffer size in bytes
+  buffer[4] = 0; // Request code
 
   // Value buffer
   buffer[5] = 0;
@@ -66,7 +21,7 @@ void query_serial_number() {
   // End tag
   buffer[7] = MBOX_TAG_LAST;
 
-  if (mailbox_call((unsigned int*)buffer, MBOX_CHANNEL_TAGS) == 1) {
+  if (mbox_call((unsigned int*)buffer, MBOX_CHANNEL_TAGS) == 1) {
     uart_print_hex(buffer[6]);
     uart_print_hex(buffer[5]);
 
@@ -130,14 +85,14 @@ int framebuf_init(struct framebuf_fb* fb) {
   buffer[28] = 4096; // Request: alignment, response: framebuffer address
   buffer[29] = 0; // Response: framebuffer size
 
-  buffer[30] = 0x40008; // Get pitch 
+  buffer[30] = 0x40008; // Get pitch
   buffer[31] = 4;
   buffer[32] = 0;
   buffer[33] = 0; // Response: pitch
 
   buffer[34] = MBOX_TAG_LAST;
 
-  if (mailbox_call((unsigned int*)buffer, MBOX_CHANNEL_TAGS) == 1) {
+  if (mbox_call((unsigned int*)buffer, MBOX_CHANNEL_TAGS) == 1) {
     if (buffer[28] != 0 && buffer[20] == 32) {
       fb->addr = (void*)bus_to_physical_addr(buffer[28]);
 
@@ -162,7 +117,7 @@ int main() {
   uart_print("Hello, World!\n");
 
   struct framebuf_fb fb;
-  
+
   int fb_valid = framebuf_init(&fb);
 
   if (fb_valid == 1) {
@@ -174,16 +129,16 @@ int main() {
         char g = icol * 256 / fb.width;
         char b = 0;
 
-        unsigned int* pixel = (unsigned int*)row_ptr + icol; 
+        unsigned int* pixel = (unsigned int*)row_ptr + icol;
         *pixel = b << 16 | g << 8 | r;
       }
     }
-
-    uart_print_hex(*(unsigned int*)fb.addr);
-    uart_print("\n");
-  } 
+  }
 
   query_serial_number();
+
+  uart_print("A\n");
+  uart_print("B\n");
 
   return 0;
 }
