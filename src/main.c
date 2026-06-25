@@ -140,5 +140,11 @@ int main() {
   uart_print("A\n");
   uart_print("B\n");
 
+  uart_print_hex(*(unsigned int*)0x10000000);
+  uart_print("\n");
+
+  uart_print_hex(*(unsigned int*)0x01000000);
+  uart_print("\n");
+
   return 0;
 }
