@@ -111,36 +111,57 @@ int framebuf_init(struct framebuf_fb* fb) {
   return 0;
 }
 
+void test_timer() {
+  // Reg: interrupt enable register 1
+  // Bit 1: enable system timer match 1 irq
+  reg_write(0x3f00b210, 2);
+
+  // Reg: system timer counter lower 32 bits
+  unsigned int counter = reg_read(0x3f003004);
+
+  // Increment counter value
+  counter += 0x200;
+
+  // Reg: system timer compare 1
+  // Set the new counter - triggers irq when hit
+  reg_write(0x3f003010, counter);
+}
+
 int main() {
+  test_timer();
+
   uart_init();
 
   uart_print("Hello, World!\n");
 
-  struct framebuf_fb fb;
+  // struct framebuf_fb fb;
 
-  int fb_valid = framebuf_init(&fb);
+  // int fb_valid = framebuf_init(&fb);
 
-  if (fb_valid == 1) {
-    for (int irow = 0; irow < fb.height; irow++) {
-      for (int icol = 0; icol < fb.width; icol++) {
-        char* row_ptr = (char*)fb.addr + irow * fb.pitch;
+  // if (fb_valid == 1) {
+  //   for (int irow = 0; irow < fb.height; irow++) {
+  //     for (int icol = 0; icol < fb.width; icol++) {
+  //       char* row_ptr = (char*)fb.addr + irow * fb.pitch;
 
-        char r = irow * 256 / fb.height;
-        char g = icol * 256 / fb.width;
-        char b = 0;
+  //       char r = irow * 256 / fb.height;
+  //       char g = icol * 256 / fb.width;
+  //       char b = 0;
 
-        unsigned int* pixel = (unsigned int*)row_ptr + icol;
-        *pixel = b << 16 | g << 8 | r;
-      }
-    }
-  }
+  //       unsigned int* pixel = (unsigned int*)row_ptr + icol;
+  //       *pixel = b << 16 | g << 8 | r;
+  //     }
+  //   }
+  // }
 
-  query_serial_number();
+  // query_serial_number();
 
-  uart_print_hex(*(unsigned int*)0x01000000);
+  uart_print_hex(*(unsigned int*)0x10000000);
   uart_print("\n");
 
-  uart_print_hex(*(unsigned int*)0x02000000);
+  uart_print_hex(*(unsigned int*)0x10000004);
+  uart_print("\n");
+
+  uart_print_hex(*(unsigned int*)0x10000008);
   uart_print("\n");
 
   return 0;
