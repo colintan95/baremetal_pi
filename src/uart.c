@@ -1,33 +1,35 @@
 #include "uart.h"
 
-#include "reg.h"
+#include "interrupts.h"
 #include "mmio.h"
 #include "mbox.h"
+#include "reg.h"
 
 #define GPFSEL1 (MMIO_BASE + 0x200004)
-
-#define AUX_BASE (MMIO_BASE + 0x215000)
-
-#define AUX_ENABLES (AUX_BASE + 0x4)
-#define AUX_MU_IO_REG (AUX_BASE + 0x40)
-#define AUX_MU_LCR_REG (AUX_BASE + 0x4c)
-#define AUX_MU_LSR_REG (AUX_BASE + 0x54)
-#define AUX_MU_CNTL_REG (AUX_BASE + 0x60)
-#define AUX_MU_BAUD_REG (AUX_BASE + 0x68)
 
 #define UART_BASE (MMIO_BASE + 0x201000)
 
 #define UART_DR (UART_BASE)
 #define UART_FR (UART_BASE + 0x18)
+
+// Baud rate divisor = clock rate / (16 * baud rate)
+// Fractional part is 6 bits
+
+// Baud rate divisor integer part
 #define UART_IBRD (UART_BASE + 0x24)
+
+// Baud rate divisor fractional part
 #define UART_FBRD (UART_BASE + 0x28)
+
 #define UART_LCRH (UART_BASE + 0x2c)
 #define UART_CR (UART_BASE + 0x30)
+
+// Interrupt mask set register
+#define UART_IMSC (UART_BASE + 0x38)
+
+// Interrupt clear register
 #define UART_ICR (UART_BASE + 0x44)
 
-#define UART0 1
-
-#ifdef UART0
 void uart_init() {
   volatile unsigned int __attribute__((aligned(16))) buffer[9];
 
@@ -57,65 +59,52 @@ void uart_init() {
 
   reg_write(GPFSEL1, select);
 
-  // Baud rate divisor = Clock rate / (16 * Baud rate)
-
-  // Baud rate divisor integer part
+  // Set the baud rate to 115200
+  // Baud rate divisor - 4MHz / (16 * 115200) = 2.170
   reg_write(UART_IBRD, 2);
-
-  // Baud rate divisor fractional part
-  // 6-bit fractional - round(remainder * 16 + 0.5)
   reg_write(UART_FBRD, 11);
 
-  // Clear interrupts - see which bits need to actually be set.
+  // Clear all interrupts - bits 0 to 10
   reg_write(UART_ICR, 0x7ff);
 
-  // Bit 5 & 6 - 8 bit word length. Bit 4 - Enable transmit and receive FIFO.
+  // Enable UART transmit and receive
+  reg_write(UART_CR, (1 << 0) | (1 << 8) | (1 << 9));
+
+  // Enable the transmit and receive FIFOs and set the word length to 8 bits
   reg_write(UART_LCRH, (1 << 6) | (1 << 5) | (1 << 4));
 
-  // Bit 0 - Enable UART. Bit 8 - Transmit enable. Bit 9 - Receive enable.
-  reg_write(UART_CR, (1 << 0) | (1 << 8) | (1 << 9));
+  // Enable UART interrupts
+  irq_enable_irq(IRQ_UART);
+
+  // Enable receive timeout and receive FIFO interrupts
+  reg_write(UART_IMSC, (1 << 6) | (1 << 4));
+}
+
+void uart_clear_interrupts() {
+  // Clear the receive interrupts
+  reg_write(UART_ICR, (1 << 6) | (1 << 4));
 }
 
 void uart_send(char c) {
-  // Bit 5 - Transmit FIFO full.
+  // Transmit FIFO full
   while (reg_read(UART_FR) & (1 << 5));
 
   reg_write(UART_DR, c);
 }
-#else
-void uart_init() {
-  unsigned int enables = reg_read(AUX_ENABLES);
 
-  // Enable uart1.
-  enables |= 1;
-  reg_write(AUX_ENABLES, enables);
+int uart_read(char* c) {
+  // Receive FIFO empty
+  if (reg_read(UART_FR) & (1 << 4)) {
+    return -1;
+  }
 
-  // Use 8-bit mode.
-  reg_write(AUX_MU_LCR_REG, 3);
+  unsigned int data = reg_read(UART_DR);
 
-  // Set baud rate to 115200 at 250MHz.
-  reg_write(AUX_MU_BAUD_REG, 270);
+  // The char to read is in bits 0 to 7
+  *c = (char)(data & ((1 << 8) - 1));
 
-  unsigned int select = reg_read(GPFSEL1);
-
-  // Set gpio 14 and 15 to alt5 - to use them for uart1.
-  select &= ~((7 << 12) | (7 << 15));
-  select |= (2 << 12) | (2 << 15);
-
-  reg_write(GPFSEL1, select);
-
-  // Enable transmitter and receiver.
-  reg_write(AUX_MU_CNTL_REG, 3);
+  return 0;
 }
-
-void uart_send(char c) {
-  // Wait for transmitter to be idle.
-  while (!(reg_read(AUX_MU_LSR_REG) & 0x20));
-
-  // Write data to transmit FIFO.
-  reg_write(AUX_MU_IO_REG, c);
-}
-#endif
 
 void uart_print(const char* s) {
   while (*s != '\0') {

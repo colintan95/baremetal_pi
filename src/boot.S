@@ -124,7 +124,7 @@ wait:
 irq_handler_el1_sp_el0:
   handler_start
 
-  bl handle_irq
+  bl irq_handler
 
   handler_end
   eret
