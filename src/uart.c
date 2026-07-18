@@ -73,11 +73,11 @@ void uart_init() {
   // Enable the transmit and receive FIFOs and set the word length to 8 bits
   reg_write(UART_LCRH, (1 << 6) | (1 << 5) | (1 << 4));
 
-  // Enable UART interrupts
-  irq_enable_irq(IRQ_UART);
+  // // Enable UART interrupts
+  // irq_enable_irq(IRQ_UART);
 
-  // Enable receive timeout and receive FIFO interrupts
-  reg_write(UART_IMSC, (1 << 6) | (1 << 4));
+  // // Enable receive timeout and receive FIFO interrupts
+  // reg_write(UART_IMSC, (1 << 6) | (1 << 4));
 }
 
 void uart_clear_interrupts() {
@@ -148,3 +148,43 @@ void uart_print_hex(unsigned int value) {
   }
 }
 
+void uart_mem_dump(unsigned int addr, int size) {
+  // Print the address first
+  uart_print("0x");
+  uart_print_hex(addr);
+
+  uart_print(": ");
+
+  // Prints the data in words of 4 bytes or less. Words are printed with the
+  // most significant bit coming first, but the order of words are in memory
+  // order - i.e. words at lower addresses come first
+  while (size > 0) {
+    int count = (size >= 4 ? 4 : size);
+    size -= count;
+
+    unsigned int word_addr = addr;
+    addr += count;
+
+    while (count > 0) {
+      # pragma GCC diagnostic push
+      # pragma GCC diagnostic ignored "-Wint-to-pointer-cast"
+      unsigned char byte = *(unsigned char*)(word_addr + count - 1);
+
+      #pragma GCC diagnostic pop
+
+      char c0 = nibble_to_char(byte & ((1 << 4) - 1));
+      char c1 = nibble_to_char(byte >> 4);
+
+      uart_send(c1);
+      uart_send(c0);
+
+      count--;
+    }
+
+    if (size > 0) {
+      uart_send(' ');
+    }
+  }
+
+  uart_print("\n");
+}

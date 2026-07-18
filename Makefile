@@ -1,5 +1,5 @@
 CC = clang
-CFLAGS = --target=aarch64-elf -O1 -g
+CFLAGS = --target=aarch64-elf -O1
 DEP_FLAGS = -MMD -MP
 
 out/kernel8.img: out out/boot.o out/main.o out/interrupts.o out/uart.o out/mbox.o

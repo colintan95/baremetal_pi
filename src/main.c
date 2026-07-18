@@ -12,5 +12,8 @@ int main() {
 
   uart_print("Hello, World!\n");
 
+  uart_mem_dump(0x00000000, 8);
+  uart_mem_dump(0x00004FFC, 8);
+
   return 0;
 }

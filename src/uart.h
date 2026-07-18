@@ -13,4 +13,6 @@ int uart_read(char* c);
 void uart_print(const char* s);
 void uart_print_hex(unsigned int value);
 
+void uart_mem_dump(unsigned int addr, int size);
+
 #endif // UART_H_
