@@ -28,9 +28,8 @@ _start:
 
 2:
   // Virtual memory regions
-  //
   // 0x00000000 - 2MB of normal memory
-  // 0x3f00b000 - IRQ/Mailbox
+  // 0x3f00b000 - IRQ, mailbox
   // 0x3f200000 - GPIO
   // 0x3f201000 - UART
   //
@@ -55,82 +54,77 @@ _start:
   // - 0x8: 0x3f201 (Page) (Device Mem) (Entry 1)
 
   // Layout for page table entries:
-  //
-  // - Bit 12:42 - Physical address bits 12 to 48
+  // - Bit 42:12 - Physical address bits 12 to 48
   // - Bit 10    - 0b1: Don't fault on first access
-  // - Bit 8:9   - 0b00: Non-shareable, 0b10: Outer shareable,
-  //               0b11: Inner shareable
-  // - Bit 2:4   - Memory attributes index
+  // - Bit 4:2   - Memory attributes index
   // - Bit 1     - 0b0: Block descriptor, 0b1: Table descriptor
   // - Bit 0     - 0b1: Active entry
 
   // Level 0 table
 
-  ldr w0, =0x00000000
+  ldr w0, =0x00000000 // Level 1 table entry
 
   ldr x1, =0x1403
   str x1, [x0]
 
   // Level 1 table
 
-  ldr w0, =0x00001000
+  ldr w0, =0x00001000 // Level 2 table entry
 
   mov x1, 0x2403
   str x1, [x0]
 
   // Level 2 table
 
-  ldr w0, =0x00002000
+  ldr w0, =0x00002000 // 2MB block entry for 0x00000000
 
   mov x1, 0x401
   str x1, [x0]
 
-  ldr w0, =0x00002fc0
+  ldr w0, =0x00002fc0 // Level 3 (1) table entry
 
   mov x1, 0x3403
   str w1, [x0]
 
-  ldr w0, =0x00002fc8
+  ldr w0, =0x00002fc8 // Level 3 (2) table entry
 
   mov x1, 0x4403
   str w1, [x0]
 
   // Level 3 table (1)
 
-  ldr w0, =0x00003058
+  ldr w0, =0x00003058 // IRQ, mailbox
 
-  ldr x1, =0x3f00b607 // Device mem
+  ldr x1, =0x3f00b407
   str w1, [x0]
 
   // Level 3 table (2)
 
-  ldr w0, =0x00004000
+  ldr w0, =0x00004000 // GPIO
 
-  ldr x1, =0x3f200607 // Device mem
+  ldr x1, =0x3f200407
   str w1, [x0]
 
-  ldr w0, =0x00004008
+  ldr w0, =0x00004008 // UART
 
-  ldr x1, =0x3f201607 // Device mem
+  ldr x1, =0x3f201407
   str w1, [x0]
 
   // Switch to el1. With the pi we would be at el2 at this point
 
   // Memory attributes
-  // Index 0: Normal memory
+  // Index 0: Normal memory, inner cacheable, outer non-cacheable
   // Index 1: Device memory, nGnRnE
-  mov x1, 0xff
+  mov x1, 0x4f
   msr mair_el1, x1
 
   // Set translation properties
   // Bit 34:32 - 0b101: 48 bits physical address size
+  //
   // ttbr0:
   // Bit 15:14 - 0b00: 4KB granules
-  // Bit 13:12 - 0b11: Inner shareable
-  // Bit 11:10 - 0b01: Outer write-back/write-allocate
-  // Bit 9:8   - 0b01: Inner write-back/write-allocate
   // Bit 5:0   - Size offset: 16 (48-bit virtual addresses)
-  ldr x0, =0x500000510
+  ldr x0, =0x500000010
   msr tcr_el1, x0
 
   // Page table starts at address 0x00000000
@@ -141,14 +135,11 @@ _start:
 
   mrs x0, sctlr_el1
 
-  // TODO: Figure out why things don't work when turning on caches
-
-  // Turn on the mmu
+  // Turn on the mmu and caches
   // Bit 12 - Enable instruction cache
   // Bit 2  - Enable data caches
   // Bit 0  - Enable MMU
-  mov w1, 1
-  // mov w1, 0x1005
+  mov w1, 0x1005
   orr x0, x0, x1
 
   msr sctlr_el1, x0
@@ -161,8 +152,9 @@ _start:
   mov x0, 4
   msr spsr_el2, x0
 
+  // TODO: Set this to a better address
   // Set the stack for sp_el1 - this will be used when handling interrupts
-  mov x0, 0x7e000
+  mov x0, 0x40000
   msr sp_el1, x0
 
   // Set the return address of el2 to the el1 entry point
@@ -196,8 +188,8 @@ _start:
 
 2:
   // Install the interrupt handlers
-  // adr x0, vectors
-  // msr vbar_el1, x0
+  adr x0, vectors
+  msr vbar_el1, x0
 
   // Now start running main() in our C code
   bl main

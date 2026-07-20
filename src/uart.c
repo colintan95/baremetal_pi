@@ -73,11 +73,11 @@ void uart_init() {
   // Enable the transmit and receive FIFOs and set the word length to 8 bits
   reg_write(UART_LCRH, (1 << 6) | (1 << 5) | (1 << 4));
 
-  // // Enable UART interrupts
-  // irq_enable_irq(IRQ_UART);
+  // Enable UART interrupts
+  irq_enable_irq(IRQ_UART);
 
-  // // Enable receive timeout and receive FIFO interrupts
-  // reg_write(UART_IMSC, (1 << 6) | (1 << 4));
+  // Enable receive timeout and receive FIFO interrupts
+  reg_write(UART_IMSC, (1 << 6) | (1 << 4));
 }
 
 void uart_clear_interrupts() {
