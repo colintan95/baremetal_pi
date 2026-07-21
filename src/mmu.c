@@ -1,11 +1,15 @@
 #include "mmu.h"
 
-#define MMU_PAGES_BASE_ADDR 0x00005000
-
+#define MMU_PAGES_BASE_ADDR 0x00004000
 #define MMU_PAGE_SIZE 4096
 
-// TODO: Move into a stdint header
-typedef unsigned long long uint64_t;
+struct mmu_page {
+  uint64_t entries[MMU_PAGE_SIZE / 8];
+};
+
+static struct mmu_page* s_root_page = 0;
+
+static uint64_t s_top_page_addr = MMU_PAGES_BASE_ADDR;
 
 static void clear_mem(uint64_t addr, int size) {
   // TODO: Do this more efficiently (e.g. write 8 bytes at a time)
@@ -16,32 +20,14 @@ static void clear_mem(uint64_t addr, int size) {
     size--;
   }
 }
+static struct mmu_page* alloc_page() {
+  uint64_t addr = s_top_page_addr;
+  s_top_page_addr += MMU_PAGE_SIZE;
 
-// Virtual memory regions
-// 0x00000000 - 2MB of normal memory
-// 0x3f00b000 - IRQ, mailbox
-// 0x3f200000 - GPIO
-// 0x3f201000 - UART
-//
-// Page tables
-//
-// 0x00000000 - Level 0
-// - 0x0: 0x1 (Table)
-//
-// 0x00001000 - Level 1
-// - 0x0: 0x2 (Table)
-//
-// 0x00002000 - Level 2
-// - 0x000: 0x0 (Block) (Normal Mem)
-// - 0xFC0: 0x3 (Table) (Entry 504)
-// - 0xFC8: 0x4 (Table) (Entry 505)
-//
-// 0x00003000 - Level 3 (1)
-// - 0x58: 0x3f00b (Page) (Device Mem) (Entry 11)
-//
-// 0x00004000 - Level 3 (2)
-// - 0x0: 0x3f200 (Page) (Device Mem)
-// - 0x8: 0x3f201 (Page) (Device Mem) (Entry 1)
+  clear_mem(addr, MMU_PAGE_SIZE);
+
+  return (struct mmu_page*)addr;
+}
 
 // Virtual address bits
 // - Level 0 - Bits 47:39
@@ -50,59 +36,77 @@ static void clear_mem(uint64_t addr, int size) {
 // - Level 3 - Bits 20:12
 
 // Layout for page table entries:
-// - Bit 42:12 - Physical address bits 12 to 48
+// - Bit 47:12 - Physical address bits 12 to 47
 // - Bit 10    - 0b1: Don't fault on first access
-// - Bit 4:2   - Memory attributes index
+// - Bit 4:2   - Memory attributes index (in mair_el1)
 // - Bit 1     - 0b0: Block descriptor, 0b1: Table descriptor
 // - Bit 0     - 0b1: Active entry
 
-unsigned int mmu_init() {
-  uint64_t base_addr = MMU_PAGES_BASE_ADDR;
-  int page_size = MMU_PAGE_SIZE;
+uint64_t mmu_init() {
+  // Allocate the page tables for the kernel's virtual memory. For now this is
+  // only 2MB since allocating a 1GB page would eat into the peripherals
+  // memory region at 0x3f00000000
+  //
+  // We map device memory later in main()
 
-  uint64_t addr = base_addr;
-  int num_pages = 5;
+  struct mmu_page* level_0 = alloc_page();
+  s_root_page = level_0;
 
-  clear_mem(addr, page_size * num_pages);
+  struct mmu_page* level_1 = alloc_page();
+  struct mmu_page* level_2 = alloc_page();
 
-  uint64_t* level0_ptr = (uint64_t*)addr;
-  addr += page_size;
+  // Level 1 table
+  level_0->entries[0] = (uint64_t)level_1 | 0x403;
 
-  uint64_t* level1_ptr = (uint64_t*)addr;
-  addr += page_size;
+  // Level 2 table
+  level_1->entries[0] = (uint64_t)level_2 | 0x403;
 
-  uint64_t* level2_ptr = (uint64_t*)addr;
-  addr += page_size;
+  // 2MB block for VA 0x00000000 - 0x00200000
+  level_2->entries[0] = 0x401; // PA 0x00000000
 
-  uint64_t* level3_1_ptr = (uint64_t*)addr;
-  addr += page_size;
+  // 2MB block for VA 0x10000000 - 0x10200000
+  level_2->entries[128] = 0x401; // PA 0x00000000
 
-  uint64_t* level3_2_ptr = (uint64_t*)addr;
-  addr += page_size;
+  return (uint64_t)s_root_page;
+}
 
-  // Level 1 table entry
-  *level0_ptr = (uint64_t)level1_ptr | 0x403;
+static struct mmu_page* get_next_page(struct mmu_page* page, int entry_idx) {
+  uint64_t entry = page->entries[entry_idx];
 
-  // Level 2 table entry
-  *level1_ptr = (uint64_t)level2_ptr | 0x403;
+  uint64_t addr_mask = ((1ull << 36) - 1) << 12;
+  uint64_t valid_mask = 1ull;
 
-  // 2 MB block entry for VA 0x00000000 - 0x00100000
-  *level2_ptr = 0x401;
+  struct mmu_page* next_page = 0;
 
-  // Level 3 (1) table entry
-  *(level2_ptr + 504) = (uint64_t)level3_1_ptr | 0x403;
+  if ((entry & valid_mask) != 0) {
+    // Table already exists
+    uint64_t next_addr = entry & addr_mask;
+    next_page = (struct mmu_page*)next_addr;
 
-  // Level 3 (2) table entry
-  *(level2_ptr + 505) = (uint64_t)level3_2_ptr | 0x403;
+  } else {
+    // Table not yet allocated. Allocate a new one and update the previous
+    // page's entry
+    next_page = alloc_page();
+    page->entries[entry_idx] = (uint64_t)next_page | 0x403;
+  }
 
-  // IRQ, mailbox
-  *(level3_1_ptr + 11) = 0x3f00b407;
+  return next_page;
+}
 
-  // GPIO
-  *level3_2_ptr = 0x3f200407;
+void mmu_map_device_mem(uint64_t virt_addr, uint64_t phys_addr) {
+  uint64_t mask = (1 << 9) - 1;
 
-  // UART
-  *(level3_2_ptr + 1) = 0x3f201407;
+  uint32_t lvl_0_idx = (virt_addr >> 39) & mask;
+  uint32_t lvl_1_idx = (virt_addr >> 30) & mask;
+  uint32_t lvl_2_idx = (virt_addr >> 21) & mask;
+  uint32_t lvl_3_idx = (virt_addr >> 12) & mask;
 
-  return base_addr;
+  // Traverse the pages
+  struct mmu_page* lvl_0_page = s_root_page;
+  struct mmu_page* lvl_1_page = get_next_page(lvl_0_page, lvl_0_idx);
+  struct mmu_page* lvl_2_page = get_next_page(lvl_1_page, lvl_1_idx);
+  struct mmu_page* lvl_3_page = get_next_page(lvl_2_page, lvl_2_idx);
+
+  // Set the level 3 entry
+  lvl_3_page->entries[lvl_3_idx] = phys_addr | 0x407;
 }

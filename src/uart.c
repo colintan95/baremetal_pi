@@ -148,6 +148,15 @@ void uart_print_hex(unsigned int value) {
   }
 }
 
+void uart_dump_u32(uint32_t value) {
+  for (int i = 7; i >= 0; i--) {
+    uint8_t byte = (value >> i * 4) & ((1 << 4) - 1);
+    uart_send(nibble_to_char(byte));
+  }
+
+  uart_print("\n");
+}
+
 void uart_mem_dump(unsigned int addr, int size) {
   // Print the address first
   uart_print("0x");

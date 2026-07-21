@@ -4,7 +4,7 @@
 
 _start:
   // The core id is stored in the lowest bits. Since the pi only has 4 cores
-  // we can just mask by the 2 bits to get the id
+  // we can just mask by the lowest 2 bits to get the id
   mrs x0, mpidr_el1
   and x0, x0, 3
 
@@ -69,30 +69,27 @@ _start:
 2:
   // Turn on virtual addressing
 
-  // Return value (i.e. w0) is the base address of the translation tables
+  // Return value (i.e. x0) is the base address of the translation tables
   bl mmu_init
 
-  // Set the address
+  // Set the table address
   // Bit 47:1 - Table base address - bit 0 is ignored
   // Bit 0    - 0b1: Cores share translation tables
   orr x0, x0, 1
   msr ttbr0_el1, x0
 
   // Memory attributes
-  // Index 0: Normal memory, inner cacheable, outer non-cacheable
-  // Index 1: Device memory, nGnRnE
+  // Idx 0: Normal memory, inner cacheable, outer non-cacheable
+  // Idx 1: Device memory, nGnRnE
   mov x1, 0x4f
   msr mair_el1, x1
 
   // Set translation properties
   // Bit 34:32 - 0b101: 48 bits physical address size
-  //
-  // ttbr0:
   // Bit 15:14 - 0b00: 4KB granules
   // Bit 5:0   - Size offset: 16 (48-bit virtual addresses)
   ldr x0, =0x500000010
   msr tcr_el1, x0
-
 
   // Turn on the mmu and caches
   // Bit 12 - Enable instruction cache
