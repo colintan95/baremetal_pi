@@ -1,24 +1,13 @@
-from datetime import datetime
 from pathlib import Path
 import subprocess
 import re
 
-SRC_DIR = "src"
-OUT_DIR = "out"
-
-def is_src(path):
-  return path.is_file() and (path.suffix == '.c' or path.suffix == '.S')
-
-def get_out_path(src):
-  return Path(OUT_DIR) / src.with_suffix('.o').name
-
-srcs = [p for p in Path(SRC_DIR).iterdir() if is_src(p)]
-
-src_infos = [{'src': p, 'out': get_out_path(p)} for p in srcs]
-
 def is_out_of_date(src, out):
   result = subprocess.run(['clang', '-M', src], capture_output=True, text=True)
-  match = re.search(r'(.+\.o):(.*)', result.stdout)
+
+  # The dep list can be on multiple lines so use the dot all flag to include
+  # newlines
+  match = re.search(r'(.+\.o):(.*)', result.stdout, flags=re.DOTALL)
 
   # TODO: Make sure the out file from clang matches ours
 
@@ -34,32 +23,55 @@ def is_out_of_date(src, out):
 
   return False
 
-has_rebuild = False
+TARGET = 'out/kernel8.img'
 
-for info in src_infos:
-  src = info['src']
-  out = info['out']
+SRC_DIR = "src"
+OUT_DIR = "out"
 
-  if (is_out_of_date(src, out)):
-    cmd = f'clang --target=aarch64-elf -O1 -c {src} -o {out}'
+def main():
+  src_dir = Path(SRC_DIR)
+  out_dir = Path(OUT_DIR)
 
-    print(cmd)
-    subprocess.run(cmd, shell=True)
+  def is_src(path):
+    return path.is_file() and (path.suffix == '.c' or path.suffix == '.S')
 
-    has_rebuild = True
+  def get_out_path(src):
+    return out_dir / src.with_suffix('.o').name
 
-target = 'out/kernel8.img'
+  srcs = [p for p in src_dir.iterdir() if is_src(p)]
+  src_infos = [{'src': p, 'out': get_out_path(p)} for p in srcs]
 
-if has_rebuild:
-  outs = [info['out'] for info in src_infos]
-  args = ' '.join([str(p) for p in outs])
+  has_rebuild = False
 
-  cmds = [f'ld.lld -m aarch64elf {args} -T link.ld -o out/kernel8.elf',
-      f'llvm-objcopy -O binary out/kernel8.elf {target}']
+  for info in src_infos:
+    src = info['src']
+    out = info['out']
 
-  for cmd in cmds:
-    print(cmd)
-    subprocess.run(cmd, shell=True)
+    if (is_out_of_date(src, out)):
+      cmd = f'clang --target=aarch64-elf -O1 -c {src} -o {out}'
 
-else:
-  print(f'\'{target}\' up to date')
+      print(cmd)
+      subprocess.run(cmd, shell=True)
+
+      has_rebuild = True
+
+  target = Path(TARGET)
+
+  if has_rebuild:
+    outs = [info['out'] for info in src_infos]
+    args = ' '.join([str(p) for p in outs])
+
+    elf = target.with_suffix('.elf')
+
+    cmds = [f'ld.lld -m aarch64elf {args} -T link.ld -o {elf}',
+        f'llvm-objcopy -O binary {elf} {target}']
+
+    for cmd in cmds:
+      print(cmd)
+      subprocess.run(cmd, shell=True)
+
+  else:
+    print(f'\'{target}\' up to date')
+
+if __name__ == '__main__':
+  main()
