@@ -20,6 +20,7 @@ static void clear_mem(uint64_t addr, int size) {
     size--;
   }
 }
+
 static struct mmu_page* alloc_page() {
   uint64_t addr = s_top_page_addr;
   s_top_page_addr += MMU_PAGE_SIZE;
